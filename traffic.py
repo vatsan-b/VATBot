@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 
 import discord
 from discord import app_commands
@@ -39,13 +40,28 @@ def register(bot, guild_obj):
         if pilot is None:
             pilot = next((p for p in data.get("prefiles", []) if p.get("callsign") == callsign), None)
             is_prefile = True
+            
         if pilot is None:
             await interaction.followup.send(f"No pilot or prefile found for `{callsign}`.")
             return
+            
         if not pilot.get("flight_plan"):
             await interaction.followup.send(f"`{callsign}` has no flight plan filed.")
             return
-        await interaction.followup.send(await format_flightplan(pilot, is_prefile))
+            
+        fp_text = await format_flightplan(pilot, is_prefile)
+        
+        # Strip out Fuel and Alternate info dynamically
+        fp_text = re.sub(r"\s*Fuel:\s*\S*", "", fp_text)
+        fp_text = re.sub(r"\s*Alt:\s*\S*", "", fp_text)
+
+        embed = discord.Embed(
+            title=f"Flight Plan: {callsign}", 
+            description=fp_text, 
+            color=discord.Color.blue()
+        )
+        await interaction.followup.send(embed=embed)
+
 
     @bot.tree.command(name="route", description="Show the full filed route for a VATSIM callsign")
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
@@ -63,6 +79,7 @@ def register(bot, guild_obj):
         is_prefile = pilot is None
         if is_prefile:
             pilot = next((p for p in data.get("prefiles", []) if p.get("callsign") == callsign), None)
+            
         if pilot is None:
             await interaction.followup.send(f"No pilot or prefile found for `{callsign}`.")
             return
@@ -71,11 +88,16 @@ def register(bot, guild_obj):
         if not fp.get("route"):
             await interaction.followup.send(f"`{callsign}` has no route filed.")
             return
+            
         tag = "  [PREFILE]" if is_prefile else ""
-        await interaction.followup.send(
-            f"**{callsign}**{tag} — {fp.get('departure', '?')}→{fp.get('arrival', '?')}\n"
-            f"```\n{fp['route']}\n```"
+        
+        embed = discord.Embed(
+            title=f"Route: {callsign}{tag}",
+            description=f"**{fp.get('departure', '?')} → {fp.get('arrival', '?')}**\n```\n{fp['route']}\n```",
+            color=discord.Color.green()
         )
+        await interaction.followup.send(embed=embed)
+
 
     @bot.tree.command(name="traffic", description="Show inbound (within 30 min) and departing traffic for an airport")
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
@@ -96,6 +118,7 @@ def register(bot, guild_obj):
                 f"Supported: {', '.join(AIRPORT_COORDS.keys())}"
             )
             return
+            
         apt_lat, apt_lon = coords
 
         arrivals, departures = [], []
@@ -124,6 +147,8 @@ def register(bot, guild_obj):
                     )
 
         arrivals.sort(key=lambda x: x[0])
+        
+        # 🟡 Reverted back to Text layout
         lines = [f"**Traffic at {icao}**"]
         if arrivals:
             lines.append("\n**Arrivals (within 30 min)**")
@@ -131,13 +156,16 @@ def register(bot, guild_obj):
                 lines.append(f"`{cs}` — {ac} | ~{int(mins)} min | {dist} nm | {gs} kts")
         else:
             lines.append("\n*No arrivals within 30 minutes.*")
+            
         if departures:
             lines.append("\n**Departures (on ground)**")
             for cs, ac, arr in departures:
                 lines.append(f"`{cs}` — {ac} → {arr}")
         else:
             lines.append("*No departures on ground.*")
+            
         await interaction.followup.send("\n".join(lines))
+
 
     @bot.tree.command(name="prefiles", description="Show pilots who have filed but not yet connected to VATSIM")
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=True)
@@ -161,10 +189,16 @@ def register(bot, guild_obj):
             return
 
         all_stats = await asyncio.gather(*[fetch_pilot_stats(p.get("cid")) for p in results])
-        formatted = [
-            await format_flightplan(p, is_prefile=True, stats=s)
-            for p, s in zip(results, all_stats)
-        ]
+        
+        # 🟡 Reverted back to Text chunks with Fuel/Alt stripping maintained
+        formatted = []
+        for p, s in zip(results, all_stats):
+            fp_text = await format_flightplan(p, is_prefile=True, stats=s)
+            
+            # Strip out Fuel and Alternate info dynamically
+            fp_text = re.sub(r"\s*Fuel:\s*\S*", "", fp_text)
+            fp_text = re.sub(r"\s*Alt:\s*\S*", "", fp_text)
+            formatted.append(fp_text)
 
         # Send in batches of 5 to stay under Discord's 2000-char limit.
         header_sent = False
@@ -174,13 +208,9 @@ def register(bot, guild_obj):
             await interaction.followup.send(header + "\n".join(batch))
             header_sent = True
 
+
     @tasks.loop(minutes=TRAFFIC_POLL_MINUTES)
     async def inbound_watcher():
-        """
-        Polls VATSIM every TRAFFIC_POLL_MINUTES for KPDX inbound traffic.
-        First run populates known_inbound silently. Subsequent runs DM the
-        bot owner when a new callsign enters the window.
-        """
         coords = AIRPORT_COORDS.get(TRAFFIC_WATCH_ICAO)
         if coords is None:
             return
@@ -217,6 +247,8 @@ def register(bot, guild_obj):
             try:
                 app_info = await bot.application_info()
                 owner = app_info.owner
+                
+                # 🟡 Reverted DM Alert back to clean Text format
                 for cs in new_ones:
                     mins, p, fp, dist, gs = current_inbound[cs]
                     await owner.send(
@@ -225,6 +257,7 @@ def register(bot, guild_obj):
                         f"~{int(mins)} min | {dist} nm | {gs} kts\n"
                         f"From: {fp.get('departure', '?')}"
                     )
+                    
             except Exception as e:
                 logger.error(f"Inbound watcher notification failed: {e}")
 

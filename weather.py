@@ -87,8 +87,7 @@ def register(bot, guild_obj):
 
     @tasks.loop(minutes=ATIS_POLL_MINUTES)
     async def atis_watcher():
-        if shared.wx_report_channel is None:
-            return
+        owner = None  # resolved lazily, only if there's an update to send
 
         for icao in WATCHED_AIRPORTS:
             data = await fetch_atis(icao)
@@ -103,20 +102,26 @@ def register(bot, guild_obj):
                 last_atis_codes.get(f"{icao}:{t}") != code
                 for t, code in current_codes.items()
             )
+            if not changed:
+                continue
 
-            if changed:
-                for t, code in current_codes.items():
-                    last_atis_codes[f"{icao}:{t}"] = code
+            for t, code in current_codes.items():
+                last_atis_codes[f"{icao}:{t}"] = code
 
-                output = format_atis(icao, data)
-                if output:
-                    try:
-                        await shared.wx_report_channel.send(output)
-                    except Exception as e:
-                        logger.error(f"Failed to send ATIS to channel: {e}")
+            output = format_atis(icao, data)
+            if not output:
+                continue
+
+            try:
+                if owner is None:
+                    owner = (await bot.application_info()).owner
+                await owner.send(output)
+            except Exception as e:
+                logger.error(f"Failed to send ATIS DM: {e}")
 
     @atis_watcher.before_loop
     async def before_atis_watcher():
         await bot.wait_until_ready()
 
     return [atis_watcher]
+

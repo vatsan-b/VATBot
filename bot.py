@@ -31,12 +31,12 @@ async def on_ready():
             timeout=aiohttp.ClientTimeout(total=30)
         )
 
-    shared.wx_report_channel = bot.get_channel(WX_REPORT_CHANNEL_ID)
-    if shared.wx_report_channel is None:
-        logger.warning(
-            f"Could not resolve WX_REPORT_CHANNEL_ID={WX_REPORT_CHANNEL_ID}; "
-            "ATIS watcher will no-op until it is reachable."
-        )
+    # shared.wx_report_channel = bot.get_channel(WX_REPORT_CHANNEL_ID)
+    # if shared.wx_report_channel is None:
+    #     logger.warning(
+    #         f"Could not resolve WX_REPORT_CHANNEL_ID={WX_REPORT_CHANNEL_ID}; "
+    #         "ATIS watcher will no-op until it is reachable."
+    #     )
 
     try:
         await bot.tree.sync(guild=guild_obj)
